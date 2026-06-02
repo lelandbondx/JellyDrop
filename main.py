@@ -549,6 +549,7 @@ html_code = """
         let bgCreatures = []; // Background silhouettes
         let flyingOrbs = []; // Flying Upgrade orbs
         let impactRipples = []; // Soft body landing water ripples
+        let bgPlankton = []; // Glowing background plankton particles
 
         let shakeIntensity = 0;
         let shadowOverlayAlpha = 0;
@@ -602,6 +603,19 @@ html_code = """
             width: 80,
             height: 30
         });
+
+        // Initialize Plankton background particles
+        for (let i = 0; i < 15; i++) {
+            bgPlankton.push({
+                x: Math.random() * canvas.width,
+                y: Math.random() * canvas.height,
+                speed: 0.1 + Math.random() * 0.25,
+                angle: Math.random() * Math.PI*2,
+                r: 1 + Math.random() * 2,
+                opacity: 0.1 + Math.random() * 0.5,
+                pulseSpeed: 0.02 + Math.random() * 0.03
+            });
+        }
 
         // --- WEB AUDIO AUDIO SYNTHESIZER ---
         function initAudio() {
@@ -833,17 +847,37 @@ html_code = """
         function startGame() {
             initAudio();
             document.getElementById('audio-overlay').classList.add('fade-out');
-            initGrid();
-        }
-
-        function initGrid() {
-            gameState = 'falling';
+            
+            // Populates starting board with RESTING static symbols (NO AUTOMATIC DROP ON START!)
+            gameState = 'idle';
             anticipationActive = false;
             for (let c = 0; c < gridCols; c++) {
                 for (let r = 0; r < gridRows; r++) {
-                    grid[r][c] = spawnSymbol(c, r, -(r + 1) * 85 - 50);
+                    const targetX = gridStartX + c * (cellWidth + gap) + cellWidth / 2;
+                    const targetY = gridStartY + r * (cellWidth + gap) + cellWidth / 2;
+                    
+                    // Spawn normal deep-sea standard symbols
+                    const standards = ['star', 'star', 'star', 'puffer', 'puffer', 'clam', 'clam', 'octopus', 'angler'];
+                    let chosenType = standards[Math.floor(Math.random() * standards.length)];
+                    
+                    grid[r][c] = {
+                        type: chosenType,
+                        gridX: c,
+                        gridY: r,
+                        x: targetX,
+                        y: targetY,
+                        targetY: targetY,
+                        vy: 0,
+                        scaleX: 1.0,
+                        scaleY: 1.0,
+                        bounceVel: 0,
+                        state: 'resting',
+                        isExploding: false,
+                        explodeScale: 1.0
+                    };
                 }
             }
+            updateUIState();
         }
 
         function spawnSymbol(col, row, customY = null) {
@@ -1004,17 +1038,26 @@ html_code = """
             
             let bodyGrad = ctx.createRadialGradient(-size*0.1, -size*0.15, 2, 0, 0, size);
             bodyGrad.addColorStop(0, '#ffffff');
-            bodyGrad.addColorStop(0.3, '#39ff14'); // Glowing green
+            bodyGrad.addColorStop(0.3, '#39ff14'); // Glowing green body
             bodyGrad.addColorStop(1, '#0c3300');
             
             ctx.fillStyle = bodyGrad;
             ctx.shadowBlur = 18;
             ctx.shadowColor = '#39ff14';
             
+            // Body shape
             ctx.beginPath();
             ctx.ellipse(0, 0, size * 0.85, size * 0.7, 0, 0, Math.PI * 2);
             ctx.fill();
             
+            // Glossy 3D Highlight Sheen overlay
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.22)';
+            ctx.shadowBlur = 0;
+            ctx.beginPath();
+            ctx.ellipse(0, -size * 0.2, size * 0.6, size * 0.25, -Math.PI / 10, 0, Math.PI, true);
+            ctx.fill();
+            
+            // Tail fin (waves)
             let tailWobble = Math.sin(phase * 1.5) * 8;
             ctx.fillStyle = '#1c7700';
             ctx.beginPath();
@@ -1029,8 +1072,17 @@ html_code = """
             ctx.ellipse(-size * 0.2, size * 0.1, size * 0.2, size * 0.15, Math.PI/4 + Math.sin(phase)*0.2, 0, Math.PI*2);
             ctx.fill();
 
+            // Dark red mouth cavity for 3D depth
+            ctx.fillStyle = '#220005';
+            ctx.beginPath();
+            ctx.moveTo(size * 0.2, size * 0.22);
+            ctx.quadraticCurveTo(size * 0.5, size * 0.35, size * 0.75, size * 0.3);
+            ctx.lineTo(size * 0.55, size * 0.05);
+            ctx.closePath();
+            ctx.fill();
+
+            // Sharp white teeth (protruding forward)
             ctx.fillStyle = '#ffffff';
-            ctx.shadowBlur = 0;
             ctx.beginPath();
             ctx.moveTo(size * 0.25, size * 0.2);
             ctx.lineTo(size * 0.28, size * 0.05);
@@ -1040,6 +1092,17 @@ html_code = """
             ctx.lineTo(size * 0.52, size * 0.24);
             ctx.fill();
             
+            // Waving glowing scales (3 lateral spots)
+            ctx.fillStyle = '#ffd700';
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = '#ffd700';
+            for(let i=0; i<3; i++) {
+                ctx.beginPath();
+                ctx.arc(-size * 0.4 + i*size*0.2, size * 0.05 + Math.sin(phase + i)*2, 2.5, 0, Math.PI*2);
+                ctx.fill();
+            }
+
+            // Eye
             ctx.fillStyle = '#ffaa00';
             ctx.shadowBlur = 10;
             ctx.shadowColor = '#ffaa00';
@@ -1079,26 +1142,41 @@ html_code = """
             ctx.shadowBlur = 16;
             ctx.shadowColor = baseColor;
             
-            ctx.lineWidth = 3;
-            ctx.strokeStyle = baseColor;
-            ctx.globalAlpha = 0.75;
-            
+            // Wavy tentacles with SUCTION CUPS (detailed points)
+            ctx.globalAlpha = 0.8;
             const numTentacles = 6;
             for (let i = 0; i < numTentacles; i++) {
                 let angle = (i / (numTentacles - 1)) * Math.PI * 0.8 - Math.PI * 0.4;
                 let tx = Math.sin(angle) * size * 0.35;
                 let ty = size * 0.12;
-                ctx.beginPath();
-                ctx.moveTo(tx, ty);
+                
                 let targetX = tx + Math.sin(angle) * size * 0.7;
                 let targetY = ty + size * 0.75;
                 let ctrlX = tx + Math.sin(angle + Math.sin(phase + i)*0.3) * size * 1.0;
                 let ctrlY = ty + size * 0.35;
+                
+                // Draw main tentacle
+                ctx.lineWidth = 3.5;
+                ctx.strokeStyle = baseColor;
+                ctx.beginPath();
+                ctx.moveTo(tx, ty);
                 ctx.quadraticCurveTo(ctrlX, ctrlY, targetX + Math.sin(phase * 1.6 + i) * 6, targetY);
                 ctx.stroke();
+                
+                // Draw glowing white suction cups offset along outer tentacle paths
+                ctx.fillStyle = '#ffffff';
+                ctx.shadowBlur = 4;
+                ctx.shadowColor = '#ffffff';
+                ctx.beginPath();
+                let cupX = (tx + ctrlX + targetX)/3 + Math.sin(phase*1.6 + i)*3 + 3;
+                let cupY = (ty + ctrlY + targetY)/3 + 5;
+                ctx.arc(cupX, cupY, 2, 0, Math.PI*2);
+                ctx.arc(cupX - 5, cupY + 12, 1.8, 0, Math.PI*2);
+                ctx.fill();
             }
             ctx.globalAlpha = 1.0;
             
+            // Head (bell shape)
             let bodyGrad = ctx.createRadialGradient(-size*0.08, -size*0.12, 1, 0, -size*0.05, size*0.65);
             bodyGrad.addColorStop(0, '#ff77dd');
             bodyGrad.addColorStop(0.5, baseColor);
@@ -1108,8 +1186,15 @@ html_code = """
             ctx.ellipse(0, -size * 0.1, size * 0.7, size * 0.6, 0, 0, Math.PI*2);
             ctx.fill();
             
-            ctx.fillStyle = '#ffffff';
+            // Sheen highlight
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.28)';
             ctx.shadowBlur = 0;
+            ctx.beginPath();
+            ctx.ellipse(0, -size * 0.32, size * 0.45, size * 0.15, 0, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Eyes
+            ctx.fillStyle = '#ffffff';
             ctx.beginPath();
             ctx.arc(-size * 0.2, -size * 0.05, size * 0.16, 0, Math.PI*2);
             ctx.arc(size * 0.2, -size * 0.05, size * 0.16, 0, Math.PI*2);
@@ -1133,15 +1218,18 @@ html_code = """
             ctx.shadowColor = baseColor;
             
             let openAmt = 0.2 + Math.sin(phase * 0.6) * 0.1;
+            
+            // Shell bottom (golden trim highlight)
             ctx.fillStyle = secondaryColor;
-            ctx.strokeStyle = baseColor;
-            ctx.lineWidth = 1.5;
+            ctx.strokeStyle = '#ffd700';
+            ctx.lineWidth = 1.8;
             ctx.beginPath();
             ctx.arc(0, size * 0.15, size * 0.7, 0, Math.PI, false);
             ctx.closePath();
             ctx.fill();
             ctx.stroke();
             
+            // Shell top
             ctx.save();
             ctx.translate(0, size * 0.1);
             ctx.rotate(-openAmt);
@@ -1150,6 +1238,9 @@ html_code = """
             shellGrad.addColorStop(0.5, baseColor);
             shellGrad.addColorStop(1, secondaryColor);
             ctx.fillStyle = shellGrad;
+            ctx.strokeStyle = '#ffd700'; // Gold lip
+            ctx.lineWidth = 1.8;
+            
             ctx.beginPath();
             ctx.arc(0, -size * 0.08, size * 0.7, Math.PI, 0, false);
             ctx.lineTo(0, 0);
@@ -1157,6 +1248,7 @@ html_code = """
             ctx.fill();
             ctx.stroke();
             
+            // Ribbing lines
             ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
             ctx.lineWidth = 0.8;
             for (let i = -2; i <= 2; i++) {
@@ -1168,12 +1260,22 @@ html_code = """
             }
             ctx.restore();
             
+            // Multi-glow Pearl in center
             ctx.fillStyle = '#ffffff';
-            ctx.shadowBlur = 18;
+            ctx.shadowBlur = 24;
             ctx.shadowColor = '#00f3ff';
             ctx.beginPath();
-            ctx.arc(0, size * 0.1, 7, 0, Math.PI * 2);
+            ctx.arc(0, size * 0.1, 7.5, 0, Math.PI * 2);
             ctx.fill();
+            
+            let pearlGrad = ctx.createRadialGradient(0, size * 0.1, 0, 0, size * 0.1, 7.5);
+            pearlGrad.addColorStop(0, '#ffffff');
+            pearlGrad.addColorStop(0.5, '#e0ffff');
+            pearlGrad.addColorStop(0.9, '#ff00aa');
+            pearlGrad.addColorStop(1.0, 'transparent');
+            ctx.fillStyle = pearlGrad;
+            ctx.fill();
+            
             ctx.restore();
         }
 
@@ -1186,6 +1288,7 @@ html_code = """
             ctx.shadowBlur = 14;
             ctx.shadowColor = baseColor;
             
+            // Fin wave
             let finWobble = Math.sin(phase * 2) * 4;
             ctx.fillStyle = '#0077aa';
             ctx.beginPath();
@@ -1195,18 +1298,31 @@ html_code = """
             ctx.closePath();
             ctx.fill();
             
-            let bodyGrad = ctx.createRadialGradient(-size*0.08, -size*0.08, 1, 0, 0, size * 0.78);
-            bodyGrad.addColorStop(0, '#ffffff');
-            bodyGrad.addColorStop(0.4, baseColor);
-            bodyGrad.addColorStop(1, secondaryColor);
+            // Body circle (radial highlight to make it look like a 3D sphere)
+            let bodyGrad = ctx.createRadialGradient(-size*0.2, -size*0.2, 2, 0, 0, size * 0.78);
+            bodyGrad.addColorStop(0, '#ffffff'); // bright sheen highlight top-left
+            bodyGrad.addColorStop(0.5, baseColor);
+            bodyGrad.addColorStop(1, secondaryColor); // dark blue-cyan bottom-right
             ctx.fillStyle = bodyGrad;
             ctx.beginPath();
             ctx.arc(0, 0, size * 0.7, 0, Math.PI*2);
             ctx.fill();
             
+            // Glowing puckered lips
+            ctx.fillStyle = '#00aae6';
+            ctx.beginPath();
+            ctx.ellipse(size * 0.65, 0, size*0.12, size*0.08, 0, 0, Math.PI*2);
+            ctx.fill();
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.ellipse(size * 0.67, 0, size*0.05, size*0.03, 0, 0, Math.PI*2);
+            ctx.fill();
+
+            // Spikes (glowing outline spikes)
             ctx.strokeStyle = baseColor;
-            ctx.lineWidth = 1.8;
-            ctx.shadowBlur = 0;
+            ctx.lineWidth = 2.0;
+            ctx.shadowBlur = 8;
+            ctx.shadowColor = baseColor;
             const numSpikes = 12;
             for (let i = 0; i < numSpikes; i++) {
                 let angle = (i / numSpikes) * Math.PI * 2;
@@ -1217,7 +1333,9 @@ html_code = """
                 ctx.lineTo(Math.cos(angle) * eR, Math.sin(angle) * eR);
                 ctx.stroke();
             }
+            ctx.shadowBlur = 0;
             
+            // Eye
             ctx.fillStyle = '#ffffff';
             ctx.beginPath();
             ctx.arc(size * 0.28, -size * 0.12, 5.5, 0, Math.PI*2);
@@ -1233,35 +1351,47 @@ html_code = """
         function drawStarfish(ctx, x, y, size, phase) {
             ctx.save();
             ctx.translate(x, y);
-            
-            let baseColor = '#ff4500';
-            ctx.shadowBlur = 15;
-            ctx.shadowColor = baseColor;
-            
             ctx.rotate(phase * 0.04);
-            ctx.fillStyle = baseColor;
-            ctx.beginPath();
+            
+            // Draw 3D Faceted Starfish (10 alternating shade triangles for faceted look!)
             const points = 5;
             const outerR = size * 0.85;
             const innerR = size * 0.32;
             
-            for (let i = 0; i < points * 2; i++) {
-                let angle = (i / (points * 2)) * Math.PI * 2 - Math.PI / 2;
-                let r = (i % 2 === 0) ? outerR : innerR;
-                if (i % 2 === 0) angle += Math.sin(phase + i) * 0.05;
-                ctx.lineTo(Math.cos(angle) * r, Math.sin(angle) * r);
-            }
-            ctx.closePath();
-            ctx.fill();
+            ctx.shadowBlur = 18;
+            ctx.shadowColor = '#ff4500';
             
-            ctx.fillStyle = '#ffffff';
-            ctx.shadowBlur = 0;
             for (let i = 0; i < points; i++) {
-                let angle = (i / points) * Math.PI * 2 - Math.PI / 2 + Math.sin(phase + i*2)*0.05;
+                let angleCenter = (i / points) * Math.PI * 2 - Math.PI / 2;
+                let angleLeft = ((i - 0.5) / points) * Math.PI * 2 - Math.PI / 2;
+                let angleRight = ((i + 0.5) / points) * Math.PI * 2 - Math.PI / 2;
+                
+                // Left triangle (light shade)
+                ctx.fillStyle = '#ff6c2c'; // bright orange
                 ctx.beginPath();
-                ctx.arc(Math.cos(angle)*outerR * 0.75, Math.sin(angle)*outerR * 0.75, 2.5, 0, Math.PI*2);
+                ctx.moveTo(0, 0);
+                ctx.lineTo(Math.cos(angleCenter) * outerR, Math.sin(angleCenter) * outerR);
+                ctx.lineTo(Math.cos(angleLeft) * innerR, Math.sin(angleLeft) * innerR);
+                ctx.closePath();
+                ctx.fill();
+                
+                // Right triangle (dark shade)
+                ctx.fillStyle = '#b32400'; // dark burnt orange
+                ctx.beginPath();
+                ctx.moveTo(0, 0);
+                ctx.lineTo(Math.cos(angleCenter) * outerR, Math.sin(angleCenter) * outerR);
+                ctx.lineTo(Math.cos(angleRight) * innerR, Math.sin(angleRight) * innerR);
+                ctx.closePath();
                 ctx.fill();
             }
+            
+            // Center gold core node
+            ctx.fillStyle = '#ffd700';
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = '#ffd700';
+            ctx.beginPath();
+            ctx.arc(0, 0, 4, 0, Math.PI*2);
+            ctx.fill();
             
             ctx.restore();
         }
@@ -1408,6 +1538,7 @@ html_code = """
             ctx.shadowBlur = 35;
             ctx.shadowColor = baseColor;
             
+            // Heavy tentacles
             ctx.lineWidth = 4.5;
             ctx.strokeStyle = baseColor;
             ctx.globalAlpha = 0.65;
@@ -1562,7 +1693,7 @@ html_code = """
                 ctrlX: ctrlX,
                 ctrlY: ctrlY,
                 progress: 0.0,
-                speed: 0.02 + Math.random() * 0.008, // ~35-45 frames flight
+                speed: 0.02 + Math.random() * 0.008, 
                 color: color,
                 type: type,
                 val: val
@@ -1578,7 +1709,6 @@ html_code = """
                 
                 let t = o.progress;
                 if (t >= 1.0) {
-                    // Impact!
                     if (o.type === 'size') {
                         colossalSize = Math.min(6, colossalSize + o.val);
                         triggerBadgePulse('size');
@@ -1593,7 +1723,6 @@ html_code = """
                     }
                     updateUIState();
                     
-                    // Spawn explosion at HUD target
                     for (let p = 0; p < 15; p++) {
                         let angle = Math.random() * Math.PI*2;
                         let vel = 1 + Math.random()*3;
@@ -1614,11 +1743,9 @@ html_code = """
                     continue;
                 }
 
-                // Quad Bezier math
                 let ox = (1-t)*(1-t)*o.startX + 2*(1-t)*t*o.ctrlX + t*t*o.targetX;
                 let oy = (1-t)*(1-t)*o.startY + 2*(1-t)*t*o.ctrlY + t*t*o.targetY;
                 
-                // Spawn trail particle
                 particles.push({
                     x: ox,
                     y: oy,
@@ -1941,6 +2068,17 @@ html_code = """
                 }
             }
 
+            // Plankton drifting background simulation
+            for (let p of bgPlankton) {
+                p.x += Math.sin(time * 0.001 + p.angle) * p.speed;
+                p.y -= p.speed * 0.6;
+                p.opacity = (0.2 + Math.abs(Math.sin(time * p.pulseSpeed)) * 0.6) * 0.5;
+                if (p.y < -10) {
+                    p.y = canvas.height + 10;
+                    p.x = Math.random() * canvas.width;
+                }
+            }
+
             for (let bg of bgCreatures) {
                 bg.x += bg.speed * bg.scaleX;
                 if (bg.scaleX === 1 && bg.x > canvas.width + bg.width + 50) {
@@ -1976,7 +2114,6 @@ html_code = """
                     let allLanded = true;
                     anticipationActive = false;
 
-                    // Compute landed Scatters to determine if we should activate anticipation slow motion
                     let scattersLanded = 0;
                     for (let c = 0; c < gridCols; c++) {
                         for (let r = 0; r < gridRows; r++) {
@@ -1988,10 +2125,8 @@ html_code = """
                     }
 
                     for (let c = 0; c < gridCols; c++) {
-                        // Apply anticipation slow-mo to columns starting at column c if scatters >= 2
                         let colAnticipation = (scattersLanded >= 2);
                         if (colAnticipation) {
-                            // Check if columns before c are already fully landed
                             let prevColsLanded = true;
                             for (let pc = 0; pc < c; pc++) {
                                 for (let pr = 0; pr < gridRows; pr++) {
@@ -2002,7 +2137,6 @@ html_code = """
                                 }
                             }
                             if (prevColsLanded) {
-                                // Column c onward falls in slow motion!
                                 anticipationActive = true;
                             }
                         }
@@ -2024,7 +2158,6 @@ html_code = """
                                     sym.state = 'resting';
                                     sym.bounceVel = -0.36; 
                                     
-                                    // Ripple
                                     let colColors = { 'star':'#ff4500', 'puffer':'#00f3ff', 'clam':'#9d00ff', 'octopus':'#ff00aa', 'angler':'#39ff14', 'blue_jelly':'#00f3ff', 'pink_jelly':'#ff007f', 'gold_jelly':'#ffd700'};
                                     impactRipples.push({
                                         x: sym.x,
@@ -2041,7 +2174,6 @@ html_code = """
                         }
                     }
 
-                    // Squash rest update
                     for (let r = 0; r < gridRows; r++) {
                         for (let c = 0; c < gridCols; c++) {
                             let sym = grid[r][c];
@@ -2052,7 +2184,6 @@ html_code = """
                     }
 
                     if (allLanded) {
-                        // Pause for pacing land highlights before check wins
                         gameState = 'landing_delay';
                         timerDelay = turboMode ? 120 : 400; 
                     }
@@ -2071,7 +2202,6 @@ html_code = """
                     break;
 
                 case 'check_wins':
-                    // Verify special upgrades
                     let upgradesFound = false;
                     for (let r = 0; r < gridRows; r++) {
                         for (let c = 0; c < gridCols; c++) {
@@ -2102,17 +2232,15 @@ html_code = """
                     }
 
                     if (upgradesFound) {
-                        // Let orbs fly before checking wins
-                        timerDelay = turboMode ? 250 : 800; // time to let orbs travel
+                        timerDelay = turboMode ? 250 : 800; 
                         gameState = 'exploding';
                         break;
                     }
 
-                    // Check paying clusters
                     const matches = resolveGridClusters();
                     if (matches.length > 0) {
                         let totalSpinWin = 0;
-                        activeClusters = matches; // Cache matches for connect laser draws
+                        activeClusters = matches; 
                         
                         for (let cl of matches) {
                             let baseType = cl.type;
@@ -2180,16 +2308,16 @@ html_code = """
                         balance += totalSpinWin;
                         updateUIState();
                         
-                        let multScale = totalSpinWin / betAmount;
-                        if (multScale >= 50.0) {
+                        let mt = totalSpinWin / betAmount;
+                        if (mt >= 50.0) {
                             winCelebration = { text: 'COLOSSAL WIN!', winAmt: totalSpinWin, timer: 120, scale: 0 };
                             playSound('win_arpeggio', { multiplier: 7 });
                             spawnCoinShower(totalSpinWin);
-                        } else if (multScale >= 20.0) {
+                        } else if (mt >= 20.0) {
                             winCelebration = { text: 'MEGA WIN!', winAmt: totalSpinWin, timer: 100, scale: 0 };
                             playSound('win_arpeggio', { multiplier: 5 });
                             spawnCoinShower(totalSpinWin);
-                        } else if (multScale >= 5.0) {
+                        } else if (mt >= 5.0) {
                             winCelebration = { text: 'BIG WIN!', winAmt: totalSpinWin, timer: 80, scale: 0 };
                             playSound('win_arpeggio', { multiplier: 2.5 });
                             spawnCoinShower(totalSpinWin);
@@ -2198,10 +2326,9 @@ html_code = """
                         }
 
                         shakeIntensity = Math.min(22, shakeIntensity + totalSpinWin * 1.2);
-                        timerDelay = turboMode ? 200 : 800; // Pause to view connects
+                        timerDelay = turboMode ? 200 : 800; 
                         gameState = 'exploding';
                     } else {
-                        // No cascades: verify colossal golden drop
                         if (upgradesAcquiredThisSpin || progressiveProgress >= 100) {
                             upgradesAcquiredThisSpin = false;
                             progressiveProgress = 0; 
@@ -2211,7 +2338,6 @@ html_code = """
                             gameState = 'idle';
                             updateUIState();
                             
-                            // Auto Spin
                             if (autoSpin) {
                                 setTimeout(() => {
                                     if (autoSpin && gameState === 'idle') {
@@ -2257,13 +2383,12 @@ html_code = """
                             updateUIState();
                         }
                         
-                        activeClusters = []; // Clear कनेक्ट line cache
+                        activeClusters = []; 
                         gameState = 'cascading';
                     }
                     break;
 
                 case 'cascading':
-                    // Cascade downward
                     for (let c = 0; c < gridCols; c++) {
                         let emptyCount = 0;
                         for (let r = gridRows - 1; r >= 0; r--) {
@@ -2286,7 +2411,6 @@ html_code = """
                         }
                     }
                     
-                    // Added a 300ms delay after explosion pops before falling symbols begin to drop
                     timerDelay = turboMode ? 100 : 300;
                     gameState = 'falling';
                     break;
@@ -2357,7 +2481,6 @@ html_code = """
                     shakeIntensity = 28; 
                     colossalReticleAlpha = 0;
 
-                    // Shockwave ring
                     shockwaves.push({
                         x: colossalJelly.x,
                         y: colossalJelly.y,
@@ -2427,10 +2550,10 @@ html_code = """
         function render(time) {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            // Shimmery background ambient rays
+            // Shimmery background ambient caustics
             ctx.save();
             ctx.globalCompositeOperation = 'screen';
-            ctx.fillStyle = 'rgba(0, 243, 255, 0.03)';
+            ctx.fillStyle = 'rgba(0, 243, 255, 0.035)';
             for (let i = 0; i < 4; i++) {
                 let rayX = (canvas.width / 4) * i + Math.sin(time * 0.0009 + i) * 35;
                 let w1 = 35 + Math.sin(time * 0.0018 + i) * 15;
@@ -2489,7 +2612,44 @@ html_code = """
                 ctx.restore();
             }
 
-            // Translate screenshake offsets (Scope grid, shockwaves, laser connect, orbs & symbols inside shake context)
+            // Drifting background plankton/sparks
+            for (let p of bgPlankton) {
+                ctx.save();
+                ctx.globalAlpha = p.opacity;
+                ctx.fillStyle = '#00f3ff';
+                ctx.shadowBlur = 8;
+                ctx.shadowColor = '#00f3ff';
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.r, 0, Math.PI*2);
+                ctx.fill();
+                ctx.restore();
+            }
+
+            // Draw glowing metallic bezel frame around canvas
+            ctx.save();
+            ctx.strokeStyle = '#1a2c38';
+            ctx.lineWidth = 10;
+            ctx.strokeRect(5, 5, canvas.width - 10, canvas.height - 10);
+            
+            // Side neon light tube (Left Cyan, Right Magenta)
+            ctx.lineWidth = 2.5;
+            ctx.shadowBlur = 12;
+            ctx.strokeStyle = '#00f3ff';
+            ctx.shadowColor = '#00f3ff';
+            ctx.beginPath();
+            ctx.moveTo(11, 10);
+            ctx.lineTo(11, canvas.height - 10);
+            ctx.stroke();
+            
+            ctx.strokeStyle = '#ff007f';
+            ctx.shadowColor = '#ff007f';
+            ctx.beginPath();
+            ctx.moveTo(canvas.width - 11, 10);
+            ctx.lineTo(canvas.width - 11, canvas.height - 10);
+            ctx.stroke();
+            ctx.restore();
+
+            // Translate screenshake offsets
             ctx.save();
             if (shakeIntensity > 0.1) {
                 let dx = (Math.random() * 2 - 1) * shakeIntensity;
@@ -2514,15 +2674,13 @@ html_code = """
                 }
             }
 
-            // Anticipation Glowing Border highlights (Aesthetically overlays the slot columns)
+            // Anticipation Glowing Border highlights
             if (anticipationActive) {
                 ctx.save();
-                ctx.strokeStyle = `rgba(255, 0, 127, ${0.4 + Math.sin(time * 0.015) * 0.35})`;
+                ctx.strokeStyle = `rgba(255, 0, 127, ${0.45 + Math.sin(time * 0.015) * 0.35})`;
                 ctx.lineWidth = 3.5;
                 ctx.shadowBlur = 20;
                 ctx.shadowColor = '#ff007f';
-                
-                // Draw a pulsing border around the grid cells
                 ctx.strokeRect(gridStartX - 4, gridStartY - 4, gridCols * (cellWidth + gap) - gap + 8, gridRows * (cellWidth + gap) - gap + 8);
                 ctx.restore();
             }
@@ -2548,7 +2706,6 @@ html_code = """
                 const rx = gridStartX + colossalJelly.gridX * (cellWidth + gap);
                 const ry = gridStartY + colossalJelly.gridY * (cellWidth + gap);
                 const rSize = S * cellWidth + (S - 1) * gap;
-                
                 ctx.strokeRect(rx, ry, rSize, rSize);
                 
                 ctx.beginPath();
@@ -2563,11 +2720,10 @@ html_code = """
                 ctx.font = '800 11px "Outfit", sans-serif';
                 ctx.textAlign = 'center';
                 ctx.fillText(`CONVERTING: ${colossalSymbolToConvert.toUpperCase()}`, rx + rSize/2, ry + rSize/2);
-                
                 ctx.restore();
             }
 
-            // Render Laser connections for winning clusters
+            // Render ELECTRIC lightning-like arcs for connections
             if (gameState === 'exploding' && activeClusters.length > 0) {
                 ctx.save();
                 for (let cl of activeClusters) {
@@ -2575,14 +2731,8 @@ html_code = """
                     let cells = cl.cells;
                     let colorMap = { 'star':'#ff4500', 'puffer':'#00f3ff', 'clam':'#9d00ff', 'octopus':'#ff00aa', 'angler':'#39ff14', 'colossal':'#ffd700' };
                     let color = colorMap[baseType] || '#ffffff';
-
-                    ctx.strokeStyle = color;
-                    ctx.lineWidth = 3.5 + Math.sin(time * 0.25) * 1.5;
-                    ctx.shadowBlur = 18;
-                    ctx.shadowColor = color;
-                    ctx.globalAlpha = 0.8;
                     
-                    // Draw lines between neighboring cells in cluster
+                    // Draw lighting arcs
                     for (let cell1 of cells) {
                         let sym1 = grid[cell1.r][cell1.c];
                         if (!sym1) continue;
@@ -2590,13 +2740,49 @@ html_code = """
                             let sym2 = grid[cell2.r][cell2.c];
                             if (!sym2 || sym1 === sym2) continue;
                             
-                            // Check adjacency (horizontal/vertical)
                             let dRow = Math.abs(cell1.r - cell2.r);
                             let dCol = Math.abs(cell1.c - cell2.c);
                             if ((dRow === 1 && dCol === 0) || (dRow === 0 && dCol === 1)) {
+                                // Draw zig-zag lightning arc
+                                let mx1 = sym1.x;
+                                let my1 = sym1.y;
+                                let mx2 = sym2.x;
+                                let my2 = sym2.y;
+                                
+                                // Divide segment into 4 parts
+                                let dx = (mx2 - mx1) / 4;
+                                let dy = (my2 - my1) / 4;
+                                
+                                // Outer electric blur
+                                ctx.strokeStyle = color;
+                                ctx.lineWidth = 5.0 + Math.sin(time*0.3)*2.0;
+                                ctx.shadowBlur = 20;
+                                ctx.shadowColor = color;
+                                ctx.globalAlpha = 0.55;
+                                
                                 ctx.beginPath();
-                                ctx.moveTo(sym1.x, sym1.y);
-                                ctx.lineTo(sym2.x, sym2.y);
+                                ctx.moveTo(mx1, my1);
+                                for (let step = 1; step < 4; step++) {
+                                    let px = mx1 + dx * step + (Math.random() - 0.5) * 7;
+                                    let py = my1 + dy * step + (Math.random() - 0.5) * 7;
+                                    ctx.lineTo(px, py);
+                                }
+                                ctx.lineTo(mx2, my2);
+                                ctx.stroke();
+                                
+                                // Core white lighting spark
+                                ctx.strokeStyle = '#ffffff';
+                                ctx.lineWidth = 1.5;
+                                ctx.shadowBlur = 0;
+                                ctx.globalAlpha = 1.0;
+                                ctx.beginPath();
+                                ctx.moveTo(mx1, my1);
+                                for (let step = 1; step < 4; step++) {
+                                    let px = mx1 + dx * step + (Math.random() - 0.5) * 4;
+                                    let py = my1 + dy * step + (Math.random() - 0.5) * 4;
+                                    ctx.lineTo(px, py);
+                                }
+                                ctx.lineTo(mx2, my2);
                                 ctx.stroke();
                             }
                         }
@@ -2685,7 +2871,7 @@ html_code = """
 
             ctx.restore();
 
-            // Draw progressive bar HUD on canvas top (not affected by shake)
+            // Draw progressive bar HUD
             drawProgressiveHUD();
 
             // Win celebrations
