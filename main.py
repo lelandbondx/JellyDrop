@@ -873,6 +873,7 @@ html_code = """
                         bounceVel: 0,
                         state: 'resting',
                         isExploding: false,
+                        isCollected: false,
                         explodeScale: 1.0
                     };
                 }
@@ -921,6 +922,7 @@ html_code = """
                 bounceVel: 0,
                 state: 'falling',
                 isExploding: false,
+                isCollected: false,
                 explodeScale: 1.0
             };
         }
@@ -1028,11 +1030,19 @@ html_code = """
                         spinBtn.style.boxShadow = '0 0 15px rgba(0, 231, 1, 0.4)';
                     }
                 } else {
-                    spinBtn.innerText = autoSpin ? 'STOP AUTO' : 'STOP';
-                    spinBtn.disabled = false;
-                    spinBtn.style.background = '#ff007f';
-                    spinBtn.style.color = '#ffffff';
-                    spinBtn.style.boxShadow = '0 0 15px rgba(255, 0, 127, 0.5)';
+                    if (autoSpin) {
+                        spinBtn.innerText = 'STOP AUTO';
+                        spinBtn.disabled = false;
+                        spinBtn.style.background = '#ff007f';
+                        spinBtn.style.color = '#ffffff';
+                        spinBtn.style.boxShadow = '0 0 15px rgba(255, 0, 127, 0.5)';
+                    } else {
+                        spinBtn.innerText = 'SPINNING';
+                        spinBtn.disabled = true;
+                        spinBtn.style.background = '#2f4553';
+                        spinBtn.style.color = '#8a9db0';
+                        spinBtn.style.boxShadow = 'none';
+                    }
                 }
                 lastUIState.gameState = gameState;
                 lastUIState.autoSpin = autoSpin;
@@ -1048,56 +1058,9 @@ html_code = """
                 }
             } else {
                 if (autoSpin) {
-                    autoSpin = false;
-                    const btn = document.getElementById('btn-auto');
-                    btn.classList.remove('active-gold');
-                }
-                triggerInstantStop();
-            }
-        }
-
-        function triggerInstantStop() {
-            playSound('land', { pitch: 600 });
-            
-            if (gameState === 'clearing_prev') {
-                grid = Array(gridRows).fill(null).map(() => Array(gridCols).fill(null));
-                colossalJelly = null;
-                initGrid();
-                landAllSymbols();
-            } else if (gameState === 'falling' || gameState === 'landing_delay') {
-                landAllSymbols();
-            } else if (gameState === 'exploding') {
-                timerDelay = 0;
-            } else if (gameState === 'colossal_intro') {
-                timerDelay = 0;
-            } else if (gameState === 'colossal_falling') {
-                if (colossalJelly) {
-                    colossalJelly.y = colossalJelly.targetY;
-                    colossalJelly.vy = 0;
-                    colossalJelly.state = 'resting';
-                    colossalJelly.bounceVel = -0.52;
-                }
-                gameState = 'colossal_impact';
-                timerDelay = 0;
-            }
-            updateUIState();
-        }
-
-        function landAllSymbols() {
-            for (let c = 0; c < gridCols; c++) {
-                for (let r = 0; r < gridRows; r++) {
-                    let sym = grid[r][c];
-                    if (sym && sym.state === 'falling') {
-                        sym.y = sym.targetY;
-                        sym.vy = 0;
-                        sym.state = 'resting';
-                        sym.bounceVel = -0.36;
-                    }
+                    toggleAuto();
                 }
             }
-            anticipationActive = false;
-            gameState = 'landing_delay';
-            timerDelay = 0;
         }
 
         window.addEventListener('keydown', (e) => {
@@ -2315,38 +2278,28 @@ html_code = """
                 }
 
                 case 'check_wins': {
-                    let upgradesFound = false;
                     if (!colossalDroppedThisSpin) {
                         for (let r = 0; r < gridRows; r++) {
                             for (let c = 0; c < gridCols; c++) {
                                 let sym = grid[r][c];
-                                if (sym && !sym.isExploding) {
+                                if (sym && !sym.isCollected && !sym.isExploding) {
                                     if (sym.type === 'blue_jelly') {
+                                        sym.isCollected = true;
                                         upgradesAcquiredThisSpin = true;
-                                        upgradesFound = true;
-                                        sym.isExploding = true;
                                         spawnFlyingOrb(sym.x, sym.y, 'size', 1);
                                     }
                                     else if (sym.type === 'pink_jelly') {
+                                        sym.isCollected = true;
                                         upgradesAcquiredThisSpin = true;
-                                        upgradesFound = true;
-                                        sym.isExploding = true;
                                         spawnFlyingOrb(sym.x, sym.y, 'mult', 2);
                                     }
                                     else if (sym.type === 'gold_jelly') {
-                                        upgradesFound = true;
-                                        sym.isExploding = true;
+                                        sym.isCollected = true;
                                         spawnFlyingOrb(sym.x, sym.y, 'charge', 15);
                                     }
                                 }
                             }
                         }
-                    }
-
-                    if (upgradesFound) {
-                        timerDelay = turboMode ? 200 : 700; 
-                        gameState = 'exploding';
-                        break;
                     }
 
                     const matches = resolveGridClusters();
