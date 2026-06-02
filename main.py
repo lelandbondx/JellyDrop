@@ -483,7 +483,7 @@ html_code = """
                     </div>
                 </div>
 
-                <button id="spin-button" class="btn-spin" onclick="triggerSpin()">SPIN</button>
+                <button id="spin-button" class="btn-spin" onclick="handleSpinClick()">SPIN</button>
 
                 <div class="toggle-controls">
                     <button class="btn-icon" id="btn-turbo" onclick="toggleTurbo()" title="Turbo Mode (Instant drops)">
@@ -535,6 +535,7 @@ html_code = """
         let colossalSize = 2; // starts 2x2, max 6x6
         let colossalMult = 2; // starts 2x, increases by +2
         let upgradesAcquiredThisSpin = false;
+        let colossalDroppedThisSpin = false;
         
         let turboMode = false;
         let autoSpin = false;
@@ -856,7 +857,6 @@ html_code = """
                     const targetX = gridStartX + c * (cellWidth + gap) + cellWidth / 2;
                     const targetY = gridStartY + r * (cellWidth + gap) + cellWidth / 2;
                     
-                    // Spawn normal deep-sea standard symbols
                     const standards = ['star', 'star', 'star', 'puffer', 'puffer', 'clam', 'clam', 'octopus', 'angler'];
                     let chosenType = standards[Math.floor(Math.random() * standards.length)];
                     
@@ -880,17 +880,27 @@ html_code = """
             updateUIState();
         }
 
+        function initGrid() {
+            for (let c = 0; c < gridCols; c++) {
+                for (let r = 0; r < gridRows; r++) {
+                    let spawnY = -100 - (gridRows - 1 - r) * (cellWidth + gap) - c * 48;
+                    grid[r][c] = spawnSymbol(c, r, spawnY);
+                }
+            }
+            gameState = 'falling';
+        }
+
         function spawnSymbol(col, row, customY = null) {
             const standards = ['star', 'star', 'star', 'puffer', 'puffer', 'clam', 'clam', 'octopus', 'angler'];
             let chosenType = '';
             
             const specialRoll = Math.random();
             if (specialRoll < 0.04) {
-                chosenType = 'blue_jelly'; // Size Upgrade
+                chosenType = 'blue_jelly'; 
             } else if (specialRoll < 0.08) {
-                chosenType = 'pink_jelly'; // Multiplier Upgrade
+                chosenType = 'pink_jelly'; 
             } else if (specialRoll < 0.11) {
-                chosenType = 'gold_jelly'; // Gold Scatter
+                chosenType = 'gold_jelly'; 
             } else {
                 chosenType = standards[Math.floor(Math.random() * standards.length)];
             }
@@ -970,26 +980,133 @@ html_code = """
             if (!el) return;
             const cls = type === 'size' ? 'pulse-cyan' : 'pulse-magenta';
             el.classList.remove(cls);
-            void el.offsetWidth; // trigger reflow
+            void el.offsetWidth; 
             el.classList.add(cls);
         }
 
+        let lastUIState = {
+            gameState: '',
+            balance: -1,
+            spinWin: -1,
+            colossalSize: -1,
+            colossalMult: -1,
+            autoSpin: null
+        };
+
         function updateUIState() {
-            document.getElementById('balance-display').innerText = `$${balance.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
-            document.getElementById('win-display').innerText = `$${spinWin.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+            if (balance !== lastUIState.balance) {
+                document.getElementById('balance-display').innerText = `$${balance.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+                lastUIState.balance = balance;
+            }
+            if (spinWin !== lastUIState.spinWin) {
+                document.getElementById('win-display').innerText = `$${spinWin.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+                lastUIState.spinWin = spinWin;
+            }
+            if (colossalSize !== lastUIState.colossalSize) {
+                document.getElementById('stat-size').innerText = `${colossalSize}x${colossalSize}`;
+                lastUIState.colossalSize = colossalSize;
+            }
+            if (colossalMult !== lastUIState.colossalMult) {
+                document.getElementById('stat-mult').innerText = `${colossalMult}x`;
+                lastUIState.colossalMult = colossalMult;
+            }
             
-            document.getElementById('stat-size').innerText = `${colossalSize}x${colossalSize}`;
-            document.getElementById('stat-mult').innerText = `${colossalMult}x`;
-            
-            const spinBtn = document.getElementById('spin-button');
-            if (gameState === 'idle') {
-                spinBtn.innerText = 'SPIN';
-                spinBtn.disabled = false;
-            } else {
-                spinBtn.innerText = 'SPINNING';
-                spinBtn.disabled = true;
+            if (gameState !== lastUIState.gameState || autoSpin !== lastUIState.autoSpin) {
+                const spinBtn = document.getElementById('spin-button');
+                if (gameState === 'idle') {
+                    if (autoSpin) {
+                        spinBtn.innerText = 'STOP AUTO';
+                        spinBtn.disabled = false;
+                        spinBtn.style.background = '#ff007f';
+                        spinBtn.style.color = '#ffffff';
+                        spinBtn.style.boxShadow = '0 0 15px rgba(255, 0, 127, 0.5)';
+                    } else {
+                        spinBtn.innerText = 'SPIN';
+                        spinBtn.disabled = false;
+                        spinBtn.style.background = '#00e701';
+                        spinBtn.style.color = '#000000';
+                        spinBtn.style.boxShadow = '0 0 15px rgba(0, 231, 1, 0.4)';
+                    }
+                } else {
+                    spinBtn.innerText = autoSpin ? 'STOP AUTO' : 'STOP';
+                    spinBtn.disabled = false;
+                    spinBtn.style.background = '#ff007f';
+                    spinBtn.style.color = '#ffffff';
+                    spinBtn.style.boxShadow = '0 0 15px rgba(255, 0, 127, 0.5)';
+                }
+                lastUIState.gameState = gameState;
+                lastUIState.autoSpin = autoSpin;
             }
         }
+
+        function handleSpinClick() {
+            if (gameState === 'idle') {
+                if (autoSpin) {
+                    toggleAuto();
+                } else {
+                    triggerSpin();
+                }
+            } else {
+                if (autoSpin) {
+                    autoSpin = false;
+                    const btn = document.getElementById('btn-auto');
+                    btn.classList.remove('active-gold');
+                }
+                triggerInstantStop();
+            }
+        }
+
+        function triggerInstantStop() {
+            playSound('land', { pitch: 600 });
+            
+            if (gameState === 'clearing_prev') {
+                grid = Array(gridRows).fill(null).map(() => Array(gridCols).fill(null));
+                colossalJelly = null;
+                initGrid();
+                landAllSymbols();
+            } else if (gameState === 'falling' || gameState === 'landing_delay') {
+                landAllSymbols();
+            } else if (gameState === 'exploding') {
+                timerDelay = 0;
+            } else if (gameState === 'colossal_intro') {
+                timerDelay = 0;
+            } else if (gameState === 'colossal_falling') {
+                if (colossalJelly) {
+                    colossalJelly.y = colossalJelly.targetY;
+                    colossalJelly.vy = 0;
+                    colossalJelly.state = 'resting';
+                    colossalJelly.bounceVel = -0.52;
+                }
+                gameState = 'colossal_impact';
+                timerDelay = 0;
+            }
+            updateUIState();
+        }
+
+        function landAllSymbols() {
+            for (let c = 0; c < gridCols; c++) {
+                for (let r = 0; r < gridRows; r++) {
+                    let sym = grid[r][c];
+                    if (sym && sym.state === 'falling') {
+                        sym.y = sym.targetY;
+                        sym.vy = 0;
+                        sym.state = 'resting';
+                        sym.bounceVel = -0.36;
+                    }
+                }
+            }
+            anticipationActive = false;
+            gameState = 'landing_delay';
+            timerDelay = 0;
+        }
+
+        window.addEventListener('keydown', (e) => {
+            if (e.code === 'Space') {
+                e.preventDefault();
+                handleSpinClick();
+            }
+        });
+
 
         function triggerSpin() {
             if (gameState !== 'idle') return;
@@ -1006,6 +1123,7 @@ html_code = """
             colossalSize = 2;
             colossalMult = 2;
             upgradesAcquiredThisSpin = false;
+            colossalDroppedThisSpin = false;
             progressiveProgress = 0;
             currentProgress = 0;
             anticipationActive = false;
@@ -1018,13 +1136,13 @@ html_code = """
             flyingOrbs = [];
             impactRipples = [];
 
-            // Sweep animation: fall off grid bottom
+            // Sweep animation: old symbols fall off bottom quickly
             gameState = 'clearing_prev';
             for (let r = 0; r < gridRows; r++) {
                 for (let c = 0; c < gridCols; c++) {
                     if (grid[r][c]) {
                         grid[r][c].state = 'clearing';
-                        grid[r][c].vy = 2 + Math.random() * 4; 
+                        grid[r][c].vy = 4 + Math.random() * 6; // snap off the bottom
                     }
                 }
             }
@@ -1038,27 +1156,24 @@ html_code = """
             
             let bodyGrad = ctx.createRadialGradient(-size*0.1, -size*0.15, 2, 0, 0, size);
             bodyGrad.addColorStop(0, '#ffffff');
-            bodyGrad.addColorStop(0.3, '#39ff14'); // Glowing green body
+            bodyGrad.addColorStop(0.3, '#39ff14'); 
             bodyGrad.addColorStop(1, '#0c3300');
             
             ctx.fillStyle = bodyGrad;
-            ctx.shadowBlur = 18;
+            ctx.shadowBlur = 18 + Math.sin(phase * 1.5) * 5;
             ctx.shadowColor = '#39ff14';
             
-            // Body shape
             ctx.beginPath();
             ctx.ellipse(0, 0, size * 0.85, size * 0.7, 0, 0, Math.PI * 2);
             ctx.fill();
             
-            // Glossy 3D Highlight Sheen overlay
             ctx.fillStyle = 'rgba(255, 255, 255, 0.22)';
             ctx.shadowBlur = 0;
             ctx.beginPath();
             ctx.ellipse(0, -size * 0.2, size * 0.6, size * 0.25, -Math.PI / 10, 0, Math.PI, true);
             ctx.fill();
             
-            // Tail fin (waves)
-            let tailWobble = Math.sin(phase * 1.5) * 8;
+            let tailWobble = Math.sin(phase * 2.0) * 4;
             ctx.fillStyle = '#1c7700';
             ctx.beginPath();
             ctx.moveTo(-size * 0.8, 0);
@@ -1069,10 +1184,9 @@ html_code = """
             ctx.fill();
             
             ctx.beginPath();
-            ctx.ellipse(-size * 0.2, size * 0.1, size * 0.2, size * 0.15, Math.PI/4 + Math.sin(phase)*0.2, 0, Math.PI*2);
+            ctx.ellipse(-size * 0.2, size * 0.1, size * 0.2, size * 0.15, Math.PI/4 + Math.sin(phase * 1.0)*0.15, 0, Math.PI*2);
             ctx.fill();
 
-            // Dark red mouth cavity for 3D depth
             ctx.fillStyle = '#220005';
             ctx.beginPath();
             ctx.moveTo(size * 0.2, size * 0.22);
@@ -1081,7 +1195,6 @@ html_code = """
             ctx.closePath();
             ctx.fill();
 
-            // Sharp white teeth (protruding forward)
             ctx.fillStyle = '#ffffff';
             ctx.beginPath();
             ctx.moveTo(size * 0.25, size * 0.2);
@@ -1092,17 +1205,15 @@ html_code = """
             ctx.lineTo(size * 0.52, size * 0.24);
             ctx.fill();
             
-            // Waving glowing scales (3 lateral spots)
             ctx.fillStyle = '#ffd700';
             ctx.shadowBlur = 10;
             ctx.shadowColor = '#ffd700';
             for(let i=0; i<3; i++) {
                 ctx.beginPath();
-                ctx.arc(-size * 0.4 + i*size*0.2, size * 0.05 + Math.sin(phase + i)*2, 2.5, 0, Math.PI*2);
+                ctx.arc(-size * 0.4 + i*size*0.2, size * 0.05 + Math.sin(phase * 1.2 + i)*1.5, 2.5, 0, Math.PI*2);
                 ctx.fill();
             }
 
-            // Eye
             ctx.fillStyle = '#ffaa00';
             ctx.shadowBlur = 10;
             ctx.shadowColor = '#ffaa00';
@@ -1115,7 +1226,7 @@ html_code = """
             ctx.arc(size * 0.27, -size * 0.2, size * 0.06, 0, Math.PI * 2);
             ctx.fill();
             
-            let rodWobble = Math.sin(phase) * 6;
+            let rodWobble = Math.sin(phase * 1.5) * 6;
             ctx.strokeStyle = '#39ff14';
             ctx.lineWidth = 2.5;
             ctx.beginPath();
@@ -1124,7 +1235,7 @@ html_code = """
             ctx.stroke();
             
             ctx.fillStyle = '#ffffff';
-            ctx.shadowBlur = 20;
+            ctx.shadowBlur = 15 + Math.sin(phase * 4.0) * 8;
             ctx.shadowColor = '#ffd700';
             ctx.beginPath();
             ctx.arc(size * 0.6, -size * 0.25 + rodWobble, 6, 0, Math.PI*2);
@@ -1139,10 +1250,9 @@ html_code = """
             
             let baseColor = '#ff00aa';
             let secondaryColor = '#660033';
-            ctx.shadowBlur = 16;
+            ctx.shadowBlur = 16 + Math.sin(phase * 1.2) * 6;
             ctx.shadowColor = baseColor;
             
-            // Wavy tentacles with SUCTION CUPS (detailed points)
             ctx.globalAlpha = 0.8;
             const numTentacles = 6;
             for (let i = 0; i < numTentacles; i++) {
@@ -1152,23 +1262,21 @@ html_code = """
                 
                 let targetX = tx + Math.sin(angle) * size * 0.7;
                 let targetY = ty + size * 0.75;
-                let ctrlX = tx + Math.sin(angle + Math.sin(phase + i)*0.3) * size * 1.0;
+                let ctrlX = tx + Math.sin(angle + Math.sin(phase * 1.0 + i)*0.3) * size * 1.1;
                 let ctrlY = ty + size * 0.35;
                 
-                // Draw main tentacle
                 ctx.lineWidth = 3.5;
                 ctx.strokeStyle = baseColor;
                 ctx.beginPath();
                 ctx.moveTo(tx, ty);
-                ctx.quadraticCurveTo(ctrlX, ctrlY, targetX + Math.sin(phase * 1.6 + i) * 6, targetY);
+                ctx.quadraticCurveTo(ctrlX, ctrlY, targetX + Math.sin(phase * 1.5 + i) * 6, targetY);
                 ctx.stroke();
                 
-                // Draw glowing white suction cups offset along outer tentacle paths
                 ctx.fillStyle = '#ffffff';
                 ctx.shadowBlur = 4;
                 ctx.shadowColor = '#ffffff';
                 ctx.beginPath();
-                let cupX = (tx + ctrlX + targetX)/3 + Math.sin(phase*1.6 + i)*3 + 3;
+                let cupX = (tx + ctrlX + targetX)/3 + Math.sin(phase*2.0 + i)*2 + 2;
                 let cupY = (ty + ctrlY + targetY)/3 + 5;
                 ctx.arc(cupX, cupY, 2, 0, Math.PI*2);
                 ctx.arc(cupX - 5, cupY + 12, 1.8, 0, Math.PI*2);
@@ -1176,7 +1284,6 @@ html_code = """
             }
             ctx.globalAlpha = 1.0;
             
-            // Head (bell shape)
             let bodyGrad = ctx.createRadialGradient(-size*0.08, -size*0.12, 1, 0, -size*0.05, size*0.65);
             bodyGrad.addColorStop(0, '#ff77dd');
             bodyGrad.addColorStop(0.5, baseColor);
@@ -1186,14 +1293,12 @@ html_code = """
             ctx.ellipse(0, -size * 0.1, size * 0.7, size * 0.6, 0, 0, Math.PI*2);
             ctx.fill();
             
-            // Sheen highlight
             ctx.fillStyle = 'rgba(255, 255, 255, 0.28)';
             ctx.shadowBlur = 0;
             ctx.beginPath();
             ctx.ellipse(0, -size * 0.32, size * 0.45, size * 0.15, 0, 0, Math.PI * 2);
             ctx.fill();
             
-            // Eyes
             ctx.fillStyle = '#ffffff';
             ctx.beginPath();
             ctx.arc(-size * 0.2, -size * 0.05, size * 0.16, 0, Math.PI*2);
@@ -1214,12 +1319,11 @@ html_code = """
             
             let baseColor = '#9d00ff';
             let secondaryColor = '#3a005c';
-            ctx.shadowBlur = 15;
+            ctx.shadowBlur = 15 + Math.sin(phase * 1.2) * 5;
             ctx.shadowColor = baseColor;
             
-            let openAmt = 0.2 + Math.sin(phase * 0.6) * 0.1;
+            let openAmt = 0.16 + Math.sin(phase * 1.0) * 0.08;
             
-            // Shell bottom (golden trim highlight)
             ctx.fillStyle = secondaryColor;
             ctx.strokeStyle = '#ffd700';
             ctx.lineWidth = 1.8;
@@ -1229,7 +1333,6 @@ html_code = """
             ctx.fill();
             ctx.stroke();
             
-            // Shell top
             ctx.save();
             ctx.translate(0, size * 0.1);
             ctx.rotate(-openAmt);
@@ -1238,7 +1341,7 @@ html_code = """
             shellGrad.addColorStop(0.5, baseColor);
             shellGrad.addColorStop(1, secondaryColor);
             ctx.fillStyle = shellGrad;
-            ctx.strokeStyle = '#ffd700'; // Gold lip
+            ctx.strokeStyle = '#ffd700'; 
             ctx.lineWidth = 1.8;
             
             ctx.beginPath();
@@ -1248,7 +1351,6 @@ html_code = """
             ctx.fill();
             ctx.stroke();
             
-            // Ribbing lines
             ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
             ctx.lineWidth = 0.8;
             for (let i = -2; i <= 2; i++) {
@@ -1260,9 +1362,8 @@ html_code = """
             }
             ctx.restore();
             
-            // Multi-glow Pearl in center
             ctx.fillStyle = '#ffffff';
-            ctx.shadowBlur = 24;
+            ctx.shadowBlur = 18 + Math.sin(phase * 2.5) * 8;
             ctx.shadowColor = '#00f3ff';
             ctx.beginPath();
             ctx.arc(0, size * 0.1, 7.5, 0, Math.PI * 2);
@@ -1285,11 +1386,10 @@ html_code = """
             
             let baseColor = '#00f3ff';
             let secondaryColor = '#00557c';
-            ctx.shadowBlur = 14;
+            ctx.shadowBlur = 14 + Math.sin(phase * 1.2) * 5;
             ctx.shadowColor = baseColor;
             
-            // Fin wave
-            let finWobble = Math.sin(phase * 2) * 4;
+            let finWobble = Math.sin(phase * 2.0) * 4;
             ctx.fillStyle = '#0077aa';
             ctx.beginPath();
             ctx.moveTo(-size * 0.7, 0);
@@ -1298,17 +1398,18 @@ html_code = """
             ctx.closePath();
             ctx.fill();
             
-            // Body circle (radial highlight to make it look like a 3D sphere)
-            let bodyGrad = ctx.createRadialGradient(-size*0.2, -size*0.2, 2, 0, 0, size * 0.78);
-            bodyGrad.addColorStop(0, '#ffffff'); // bright sheen highlight top-left
+            let bodyPulse = 1.0 + Math.sin(phase * 1.2) * 0.04;
+            let bodyR = size * 0.7 * bodyPulse;
+            
+            let bodyGrad = ctx.createRadialGradient(-size*0.2, -size*0.2, 2, 0, 0, bodyR * 1.1);
+            bodyGrad.addColorStop(0, '#ffffff'); 
             bodyGrad.addColorStop(0.5, baseColor);
-            bodyGrad.addColorStop(1, secondaryColor); // dark blue-cyan bottom-right
+            bodyGrad.addColorStop(1, secondaryColor); 
             ctx.fillStyle = bodyGrad;
             ctx.beginPath();
-            ctx.arc(0, 0, size * 0.7, 0, Math.PI*2);
+            ctx.arc(0, 0, bodyR, 0, Math.PI*2);
             ctx.fill();
             
-            // Glowing puckered lips
             ctx.fillStyle = '#00aae6';
             ctx.beginPath();
             ctx.ellipse(size * 0.65, 0, size*0.12, size*0.08, 0, 0, Math.PI*2);
@@ -1318,7 +1419,6 @@ html_code = """
             ctx.ellipse(size * 0.67, 0, size*0.05, size*0.03, 0, 0, Math.PI*2);
             ctx.fill();
 
-            // Spikes (glowing outline spikes)
             ctx.strokeStyle = baseColor;
             ctx.lineWidth = 2.0;
             ctx.shadowBlur = 8;
@@ -1326,8 +1426,8 @@ html_code = """
             const numSpikes = 12;
             for (let i = 0; i < numSpikes; i++) {
                 let angle = (i / numSpikes) * Math.PI * 2;
-                let sR = size * 0.7;
-                let eR = size * 0.9;
+                let sR = bodyR;
+                let eR = bodyR + size * 0.18;
                 ctx.beginPath();
                 ctx.moveTo(Math.cos(angle) * sR, Math.sin(angle) * sR);
                 ctx.lineTo(Math.cos(angle) * eR, Math.sin(angle) * eR);
@@ -1335,7 +1435,6 @@ html_code = """
             }
             ctx.shadowBlur = 0;
             
-            // Eye
             ctx.fillStyle = '#ffffff';
             ctx.beginPath();
             ctx.arc(size * 0.28, -size * 0.12, 5.5, 0, Math.PI*2);
@@ -1351,14 +1450,14 @@ html_code = """
         function drawStarfish(ctx, x, y, size, phase) {
             ctx.save();
             ctx.translate(x, y);
-            ctx.rotate(phase * 0.04);
+            ctx.rotate(phase * 0.5);
             
-            // Draw 3D Faceted Starfish (10 alternating shade triangles for faceted look!)
             const points = 5;
-            const outerR = size * 0.85;
-            const innerR = size * 0.32;
+            let bodyPulse = 1.0 + Math.sin(phase * 1.5) * 0.04;
+            const outerR = size * 0.85 * bodyPulse;
+            const innerR = size * 0.32 * bodyPulse;
             
-            ctx.shadowBlur = 18;
+            ctx.shadowBlur = 18 + Math.sin(phase * 1.5) * 6;
             ctx.shadowColor = '#ff4500';
             
             for (let i = 0; i < points; i++) {
@@ -1366,8 +1465,7 @@ html_code = """
                 let angleLeft = ((i - 0.5) / points) * Math.PI * 2 - Math.PI / 2;
                 let angleRight = ((i + 0.5) / points) * Math.PI * 2 - Math.PI / 2;
                 
-                // Left triangle (light shade)
-                ctx.fillStyle = '#ff6c2c'; // bright orange
+                ctx.fillStyle = '#ff6c2c'; 
                 ctx.beginPath();
                 ctx.moveTo(0, 0);
                 ctx.lineTo(Math.cos(angleCenter) * outerR, Math.sin(angleCenter) * outerR);
@@ -1375,8 +1473,7 @@ html_code = """
                 ctx.closePath();
                 ctx.fill();
                 
-                // Right triangle (dark shade)
-                ctx.fillStyle = '#b32400'; // dark burnt orange
+                ctx.fillStyle = '#b32400'; 
                 ctx.beginPath();
                 ctx.moveTo(0, 0);
                 ctx.lineTo(Math.cos(angleCenter) * outerR, Math.sin(angleCenter) * outerR);
@@ -1385,7 +1482,6 @@ html_code = """
                 ctx.fill();
             }
             
-            // Center gold core node
             ctx.fillStyle = '#ffd700';
             ctx.shadowBlur = 10;
             ctx.shadowColor = '#ffd700';
@@ -1422,8 +1518,8 @@ html_code = """
                 let tLen = size * 0.95;
                 ctx.lineTo(tx, ty + 4);
                 for (let yOffset = 4; yOffset < tLen; yOffset += 4) {
-                    let angle = phase + yOffset * 0.08 - i * 0.6;
-                    let wx = tx + Math.sin(angle) * 5;
+                    let angle = phase + yOffset * 0.05 - i * 0.6;
+                    let wx = tx + Math.sin(angle) * (4 + yOffset * 0.12);
                     ctx.lineTo(wx, ty + yOffset);
                 }
                 ctx.stroke();
@@ -1488,8 +1584,8 @@ html_code = """
                 let tLen = size * 0.95;
                 ctx.lineTo(tx, ty + 4);
                 for (let yOffset = 4; yOffset < tLen; yOffset += 4) {
-                    let angle = phase + yOffset * 0.08 - i * 0.6;
-                    ctx.lineTo(tx + Math.sin(angle)*5, ty + yOffset);
+                    let angle = phase + yOffset * 0.05 - i * 0.6;
+                    ctx.lineTo(tx + Math.sin(angle) * (4 + yOffset * 0.12), ty + yOffset);
                 }
                 ctx.stroke();
             }
@@ -1538,7 +1634,6 @@ html_code = """
             ctx.shadowBlur = 35;
             ctx.shadowColor = baseColor;
             
-            // Heavy tentacles
             ctx.lineWidth = 4.5;
             ctx.strokeStyle = baseColor;
             ctx.globalAlpha = 0.65;
@@ -1548,13 +1643,13 @@ html_code = """
                 let ty = size * 0.12;
                 ctx.beginPath();
                 ctx.moveTo(tx, ty);
-                let waveFreq = 0.04;
-                let waveAmp = 12;
+                let waveFreq = 0.025;
+                let waveAmp = 10;
                 let tentacleLen = size * 1.2;
                 ctx.lineTo(tx, ty + 8);
                 for (let yOffset = 8; yOffset < tentacleLen; yOffset += 6) {
                     let angle = phase + yOffset * waveFreq - i * 0.5;
-                    let wx = tx + Math.sin(angle) * waveAmp;
+                    let wx = tx + Math.sin(angle) * (waveAmp + yOffset * 0.12);
                     ctx.lineTo(wx, ty + yOffset);
                 }
                 ctx.stroke();
@@ -1627,10 +1722,10 @@ html_code = """
 
         // --- PARTICLE EX EXPLOSIONS ---
         function spawnClusterExplosion(x, y, color) {
-            const count = 25 + Math.floor(Math.random() * 8);
+            const count = 20 + Math.floor(Math.random() * 6);
             for (let i = 0; i < count; i++) {
                 let angle = Math.random() * Math.PI * 2;
-                let vel = 3 + Math.random() * 6;
+                let vel = 1.5 + Math.random() * 2.0; // Halved velocity for gentle rise
                 particles.push({
                     x: x,
                     y: y,
@@ -1712,9 +1807,8 @@ html_code = """
                     if (o.type === 'size') {
                         colossalSize = Math.min(6, colossalSize + o.val);
                         triggerBadgePulse('size');
-                        playSound('upgrade');
                     } else if (o.type === 'mult') {
-                        colossalMult += o.val;
+                        colossalMult = Math.min(100, colossalMult + o.val);
                         triggerBadgePulse('mult');
                         playSound('upgrade');
                     } else if (o.type === 'charge') {
@@ -1772,11 +1866,11 @@ html_code = """
             for (let i = particles.length - 1; i >= 0; i--) {
                 let p = particles[i];
                 p.life++;
-                p.vx *= 0.90;
-                p.vy *= 0.90;
+                p.vx *= 0.94; // Soft resistance slow down
+                p.vy *= 0.94;
                 
-                if (p.type === 'bubble') p.vy -= 0.12; 
-                else p.vy += 0.06; 
+                if (p.type === 'bubble') p.vy -= 0.06; // Slow drift up
+                else p.vy += 0.03; 
                 
                 p.x += p.vx;
                 p.y += p.vy;
@@ -2048,6 +2142,8 @@ html_code = """
             let dt = time - lastTime;
             if (dt > 100) dt = 16.67; 
             lastTime = time;
+            
+            let dtFactor = dt / 16.67;
 
             if (shakeIntensity > 0.05) shakeIntensity *= 0.88;
             else shakeIntensity = 0;
@@ -2091,14 +2187,14 @@ html_code = """
             }
 
             switch (gameState) {
-                case 'clearing_prev':
+                case 'clearing_prev': {
                     let clearingActive = false;
                     for (let r = 0; r < gridRows; r++) {
                         for (let c = 0; c < gridCols; c++) {
                             let sym = grid[r][c];
                             if (sym) {
-                                sym.y += sym.vy;
-                                sym.vy += 0.85;
+                                sym.y += sym.vy * dtFactor;
+                                sym.vy += 0.95 * dtFactor;
                                 if (sym.y < canvas.height + 100) clearingActive = true;
                             }
                         }
@@ -2109,8 +2205,9 @@ html_code = """
                         initGrid();
                     }
                     break;
+                }
 
-                case 'falling':
+                case 'falling': {
                     let allLanded = true;
                     anticipationActive = false;
 
@@ -2141,22 +2238,36 @@ html_code = """
                             }
                         }
 
-                        const grav = anticipationActive ? 0.15 : (turboMode ? 1.4 : 0.6);
-                        const maxVy = anticipationActive ? 4.0 : (turboMode ? 28 : 17);
+                        const grav = turboMode ? 1.5 : (anticipationActive ? 0.22 : 0.55);
+                        const drag = turboMode ? 0.90 : (anticipationActive ? 0.94 : 0.95);
                         
                         for (let r = 0; r < gridRows; r++) {
                             let sym = grid[r][c];
                             if (sym && sym.state === 'falling') {
                                 allLanded = false;
-                                sym.vy += grav;
-                                if (sym.vy > maxVy) sym.vy = maxVy;
-                                sym.y += sym.vy;
+                                sym.vy = sym.vy * Math.pow(drag, dtFactor) + grav * dtFactor;
+                                sym.y += sym.vy * dtFactor;
+                                
+                                // Spawn a trail particle behind the falling creature!
+                                if (Math.random() < 0.12 * dtFactor) {
+                                    particles.push({
+                                        x: sym.x + (Math.random() - 0.5) * 20,
+                                        y: sym.y + 15,
+                                        vx: (Math.random() - 0.5) * 0.4,
+                                        vy: sym.vy * 0.2,
+                                        r: 1 + Math.random() * 2,
+                                        color: 'rgba(0, 243, 255, 0.4)',
+                                        type: 'droplet',
+                                        life: 0,
+                                        maxLife: 30
+                                    });
+                                }
                                 
                                 if (sym.y >= sym.targetY) {
                                     sym.y = sym.targetY;
                                     sym.vy = 0;
                                     sym.state = 'resting';
-                                    sym.bounceVel = -0.36; 
+                                    sym.bounceVel = -0.36; // snappy rubbery bounce 
                                     
                                     let colColors = { 'star':'#ff4500', 'puffer':'#00f3ff', 'clam':'#9d00ff', 'octopus':'#ff00aa', 'angler':'#39ff14', 'blue_jelly':'#00f3ff', 'pink_jelly':'#ff007f', 'gold_jelly':'#ffd700'};
                                     impactRipples.push({
@@ -2178,61 +2289,62 @@ html_code = """
                         for (let c = 0; c < gridCols; c++) {
                             let sym = grid[r][c];
                             if (sym && sym.state === 'resting') {
-                                updateSoftBodyWobble(sym);
+                                updateSoftBodyWobble(sym, dtFactor);
                             }
                         }
                     }
 
                     if (allLanded) {
                         gameState = 'landing_delay';
-                        timerDelay = turboMode ? 120 : 400; 
+                        timerDelay = turboMode ? 40 : 150; 
                     }
                     break;
+                }
 
-                case 'landing_delay':
+                case 'landing_delay': {
                     timerDelay -= dt;
                     for (let r = 0; r < gridRows; r++) {
                         for (let c = 0; c < gridCols; c++) {
-                            if (grid[r][c]) updateSoftBodyWobble(grid[r][c]);
+                            if (grid[r][c]) updateSoftBodyWobble(grid[r][c], dtFactor);
                         }
                     }
                     if (timerDelay <= 0) {
                         gameState = 'check_wins';
                     }
                     break;
+                }
 
-                case 'check_wins':
+                case 'check_wins': {
                     let upgradesFound = false;
-                    for (let r = 0; r < gridRows; r++) {
-                        for (let c = 0; c < gridCols; c++) {
-                            let sym = grid[r][c];
-                            if (sym && !sym.isExploding) {
-                                if (sym.type === 'blue_jelly') {
-                                    upgradesAcquiredThisSpin = true;
-                                    upgradesFound = true;
-                                    sym.isExploding = true;
-                                    spawnFlyingOrb(sym.x, sym.y, 'size', 1);
-                                    spawnClusterExplosion(sym.x, sym.y, '#00f3ff');
-                                }
-                                else if (sym.type === 'pink_jelly') {
-                                    upgradesAcquiredThisSpin = true;
-                                    upgradesFound = true;
-                                    sym.isExploding = true;
-                                    spawnFlyingOrb(sym.x, sym.y, 'mult', 2);
-                                    spawnClusterExplosion(sym.x, sym.y, '#ff007f');
-                                }
-                                else if (sym.type === 'gold_jelly') {
-                                    upgradesFound = true;
-                                    sym.isExploding = true;
-                                    spawnFlyingOrb(sym.x, sym.y, 'charge', 15);
-                                    spawnClusterExplosion(sym.x, sym.y, '#ffd700');
+                    if (!colossalDroppedThisSpin) {
+                        for (let r = 0; r < gridRows; r++) {
+                            for (let c = 0; c < gridCols; c++) {
+                                let sym = grid[r][c];
+                                if (sym && !sym.isExploding) {
+                                    if (sym.type === 'blue_jelly') {
+                                        upgradesAcquiredThisSpin = true;
+                                        upgradesFound = true;
+                                        sym.isExploding = true;
+                                        spawnFlyingOrb(sym.x, sym.y, 'size', 1);
+                                    }
+                                    else if (sym.type === 'pink_jelly') {
+                                        upgradesAcquiredThisSpin = true;
+                                        upgradesFound = true;
+                                        sym.isExploding = true;
+                                        spawnFlyingOrb(sym.x, sym.y, 'mult', 2);
+                                    }
+                                    else if (sym.type === 'gold_jelly') {
+                                        upgradesFound = true;
+                                        sym.isExploding = true;
+                                        spawnFlyingOrb(sym.x, sym.y, 'charge', 15);
+                                    }
                                 }
                             }
                         }
                     }
 
                     if (upgradesFound) {
-                        timerDelay = turboMode ? 250 : 800; 
+                        timerDelay = turboMode ? 200 : 700; 
                         gameState = 'exploding';
                         break;
                     }
@@ -2270,7 +2382,6 @@ html_code = """
                                 'angler': '#39ff14',
                                 'colossal': '#ffd700'
                             };
-                            let colStr = colorMap[baseType];
 
                             if (baseType === 'colossal') {
                                 let payRate = payouts[colossalSymbolToConvert] || 0.1;
@@ -2283,25 +2394,6 @@ html_code = """
                             }
 
                             totalSpinWin += clusterWin;
-                            
-                            for (let cell of cells) {
-                                let sym = grid[cell.r][cell.c];
-                                spawnClusterExplosion(sym.x, sym.y, colStr);
-                            }
-
-                            floatingTexts.push({
-                                x: centerX,
-                                y: centerY,
-                                text: `+$${clusterWin.toFixed(2)}${baseType === 'colossal' ? ` (${colossalMult}x)` : ''}`,
-                                color: colStr,
-                                size: count > 8 ? 24 : 17,
-                                vy: 1.5,
-                                life: 0,
-                                maxLife: 55
-                            });
-
-                            progressiveProgress = Math.min(100, progressiveProgress + count * 1.8);
-                            playSound('pop', { pitch: 300 + (count * 45) });
                         }
 
                         spinWin += totalSpinWin;
@@ -2325,15 +2417,17 @@ html_code = """
                             playSound('win_arpeggio', { multiplier: 1 });
                         }
 
-                        shakeIntensity = Math.min(22, shakeIntensity + totalSpinWin * 1.2);
-                        timerDelay = turboMode ? 200 : 800; 
+                        // Soft screenshake rumble
+                        shakeIntensity = Math.min(10, shakeIntensity + totalSpinWin * 0.8);
+                        timerDelay = turboMode ? 250 : 700; // Longer pause to let laser connections show!
                         gameState = 'exploding';
                     } else {
-                        if (upgradesAcquiredThisSpin || progressiveProgress >= 100) {
+                        if (!colossalDroppedThisSpin && (upgradesAcquiredThisSpin || progressiveProgress >= 100)) {
+                            colossalDroppedThisSpin = true;
                             upgradesAcquiredThisSpin = false;
                             progressiveProgress = 0; 
                             gameState = 'colossal_intro';
-                            timerDelay = turboMode ? 350 : 1200;
+                            timerDelay = turboMode ? 300 : 800;
                         } else {
                             gameState = 'idle';
                             updateUIState();
@@ -2348,22 +2442,53 @@ html_code = """
                         }
                     }
                     break;
+                }
 
-                case 'exploding':
+                case 'exploding': {
                     timerDelay -= dt;
+                    let particlesTriggered = false;
+
+                    // Winning highlight pulse & shrink animation
                     for (let r = 0; r < gridRows; r++) {
                         for (let c = 0; c < gridCols; c++) {
                             let sym = grid[r][c];
                             if (sym && sym.isExploding) {
-                                sym.explodeScale *= 0.82; 
+                                // If we are in the initial pulse stage (first 700ms), pulse scale
+                                if (timerDelay > (turboMode ? 80 : 300)) {
+                                    let pulsePhase = timerDelay * 0.015;
+                                    sym.explodeScale = 1.0 + Math.sin(pulsePhase) * 0.12;
+                                } else {
+                                    // Settle and shrink
+                                    sym.explodeScale *= 0.8;
+                                    
+                                    // Trigger pops and particles at the exact frame of shrinkage
+                                    if (!sym.particlesSpawned) {
+                                        sym.particlesSpawned = true;
+                                        let colColors = { 'star':'#ff4500', 'puffer':'#00f3ff', 'clam':'#9d00ff', 'octopus':'#ff00aa', 'angler':'#39ff14', 'blue_jelly':'#00f3ff', 'pink_jelly':'#ff007f', 'gold_jelly':'#ffd700'};
+                                        spawnClusterExplosion(sym.x, sym.y, colColors[sym.type] || '#ffffff');
+                                        playSound('pop', { pitch: 500 + (r * 30) });
+                                    }
+                                }
                             } else if (sym) {
-                                updateSoftBodyWobble(sym);
+                                updateSoftBodyWobble(sym, dtFactor);
                             }
                         }
                     }
                     if (colossalJelly) {
-                        if (colossalJelly.isExploding) colossalJelly.explodeScale *= 0.82;
-                        else updateSoftBodyWobble(colossalJelly);
+                        if (colossalJelly.isExploding) {
+                            if (timerDelay > (turboMode ? 80 : 300)) {
+                                colossalJelly.explodeScale = 1.0 + Math.sin(timerDelay*0.015)*0.12;
+                            } else {
+                                colossalJelly.explodeScale *= 0.8;
+                                if (!colossalJelly.particlesSpawned) {
+                                    colossalJelly.particlesSpawned = true;
+                                    spawnClusterExplosion(colossalJelly.x, colossalJelly.y, '#ffd700');
+                                    playSound('pop', { pitch: 350 });
+                                }
+                            }
+                        } else {
+                            updateSoftBodyWobble(colossalJelly, dtFactor);
+                        }
                     }
 
                     if (timerDelay <= 0) {
@@ -2387,8 +2512,9 @@ html_code = """
                         gameState = 'cascading';
                     }
                     break;
+                }
 
-                case 'cascading':
+                case 'cascading': {
                     for (let c = 0; c < gridCols; c++) {
                         let emptyCount = 0;
                         for (let r = gridRows - 1; r >= 0; r--) {
@@ -2406,16 +2532,18 @@ html_code = """
                         
                         for (let i = 0; i < emptyCount; i++) {
                             let targetRow = emptyCount - 1 - i;
-                            let spawnY = -(i + 1) * (cellWidth + gap) - 30;
+                            let spawnY = -(i + 1) * (cellWidth + gap) - 30 - c * 40;
                             grid[targetRow][c] = spawnSymbol(c, targetRow, spawnY);
                         }
                     }
                     
-                    timerDelay = turboMode ? 100 : 300;
+                    // Added a 200ms delay after explosion pops before falling symbols begin to drop
+                    timerDelay = turboMode ? 50 : 100;
                     gameState = 'falling';
                     break;
+                }
 
-                case 'colossal_intro':
+                case 'colossal_intro': {
                     shadowOverlayAlpha += (0.8 - shadowOverlayAlpha) * 0.08;
                     alertOverlay = { text: 'COLOSSAL JELLY DROP!', alpha: 1.0, timer: 90 };
                     
@@ -2457,28 +2585,46 @@ html_code = """
                         playSound('spin');
                     }
                     break;
+                }
 
-                case 'colossal_falling':
-                    colossalReticleAlpha += (0.6 - colossalReticleAlpha) * 0.1;
+                case 'colossal_falling': {
+                    colossalReticleAlpha += (0.6 - colossalReticleAlpha) * 0.1 * dtFactor;
                     
-                    const cGrav = turboMode ? 1.7 : 0.85;
-                    colossalJelly.vy += cGrav;
-                    colossalJelly.y += colossalJelly.vy;
+                    const cGrav = turboMode ? 1.4 : 0.75;
+                    const cDrag = turboMode ? 0.90 : 0.95;
+                    colossalJelly.vy = colossalJelly.vy * Math.pow(cDrag, dtFactor) + cGrav * dtFactor;
+                    colossalJelly.y += colossalJelly.vy * dtFactor;
+                    
+                    // Spawn a massive golden bubble wake behind the falling colossal jellyfish!
+                    if (Math.random() < 0.45 * dtFactor) {
+                        particles.push({
+                            x: colossalJelly.x + (Math.random() - 0.5) * 80,
+                            y: colossalJelly.y + colossalJelly.size * 10,
+                            vx: (Math.random() - 0.5) * 1.5,
+                            vy: colossalJelly.vy * 0.3,
+                            r: 2 + Math.random() * 4,
+                            color: 'rgba(255, 215, 0, 0.4)',
+                            type: 'bubble',
+                            life: 0,
+                            maxLife: 45
+                        });
+                    }
                     
                     if (colossalJelly.y >= colossalJelly.targetY) {
                         colossalJelly.y = colossalJelly.targetY;
                         colossalJelly.vy = 0;
                         colossalJelly.state = 'resting';
-                        colossalJelly.bounceVel = -0.58;
+                        colossalJelly.bounceVel = -0.52; // colossal crash bounce
                         
                         gameState = 'colossal_impact';
-                        timerDelay = turboMode ? 200 : 650;
+                        timerDelay = turboMode ? 100 : 400;
                     }
                     break;
+                }
 
-                case 'colossal_impact':
+                case 'colossal_impact': {
                     playSound('colossal_impact');
-                    shakeIntensity = 28; 
+                    shakeIntensity = 18; // Soft colossal screen shake rumble
                     colossalReticleAlpha = 0;
 
                     shockwaves.push({
@@ -2507,38 +2653,43 @@ html_code = """
 
                     gameState = 'colossal_pay';
                     break;
+                }
 
-                case 'colossal_pay':
-                    updateSoftBodyWobble(colossalJelly);
+                case 'colossal_pay': {
+                    updateSoftBodyWobble(colossalJelly, dtFactor);
                     gameState = 'check_wins'; 
                     break;
+                }
 
-                case 'idle':
+                case 'idle': {
                     for (let r = 0; r < gridRows; r++) {
                         for (let c = 0; c < gridCols; c++) {
                             let sym = grid[r][c];
-                            if (sym) updateSoftBodyWobble(sym);
+                            if (sym) updateSoftBodyWobble(sym, dtFactor);
                         }
                     }
-                    if (colossalJelly) updateSoftBodyWobble(colossalJelly);
+                    if (colossalJelly) updateSoftBodyWobble(colossalJelly, dtFactor);
                     shadowOverlayAlpha += (0 - shadowOverlayAlpha) * 0.05;
                     break;
+                }
             }
+            updateUIState();
         }
 
-        function updateSoftBodyWobble(sym) {
-            const stiffness = 0.16;
+        function updateSoftBodyWobble(sym, dtFactor) {
+            // rubby bouncy responsive spring wobble
+            const stiffness = 0.07;
             const damping = 0.14;
             
             let force = -stiffness * (sym.scaleY - 1.0);
             let damp = -damping * sym.bounceVel;
             let acc = force + damp;
             
-            sym.bounceVel += acc;
-            sym.scaleY += sym.bounceVel;
+            sym.bounceVel += acc * dtFactor;
+            sym.scaleY += sym.bounceVel * dtFactor;
             sym.scaleX = 2.0 - sym.scaleY; 
 
-            if (sym.state === 'resting' && Math.abs(sym.scaleY - 1.0) < 0.005 && Math.abs(sym.bounceVel) < 0.005) {
+            if (sym.state === 'resting' && Math.abs(sym.scaleY - 1.0) < 0.002 && Math.abs(sym.bounceVel) < 0.002) {
                 sym.scaleY = 1.0;
                 sym.scaleX = 1.0;
                 sym.bounceVel = 0;
@@ -2550,14 +2701,14 @@ html_code = """
         function render(time) {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            // Shimmery background ambient caustics
+            // Shimmery background caustics
             ctx.save();
             ctx.globalCompositeOperation = 'screen';
-            ctx.fillStyle = 'rgba(0, 243, 255, 0.035)';
+            ctx.fillStyle = 'rgba(0, 243, 255, 0.03)';
             for (let i = 0; i < 4; i++) {
-                let rayX = (canvas.width / 4) * i + Math.sin(time * 0.0009 + i) * 35;
-                let w1 = 35 + Math.sin(time * 0.0018 + i) * 15;
-                let w2 = 110 + Math.sin(time * 0.0009 + i) * 35;
+                let rayX = (canvas.width / 4) * i + Math.sin(time * 0.0006 + i) * 35;
+                let w1 = 35 + Math.sin(time * 0.0012 + i) * 15;
+                let w2 = 110 + Math.sin(time * 0.0006 + i) * 35;
                 
                 ctx.beginPath();
                 ctx.moveTo(rayX - w1, -10);
@@ -2569,7 +2720,7 @@ html_code = """
             }
             ctx.restore();
 
-            // Background silhouettes
+            // Background silhouettes (whale/shark gliding slower)
             for (let bg of bgCreatures) {
                 ctx.save();
                 ctx.fillStyle = 'rgba(10, 25, 42, 0.22)';
@@ -2631,7 +2782,7 @@ html_code = """
             ctx.lineWidth = 10;
             ctx.strokeRect(5, 5, canvas.width - 10, canvas.height - 10);
             
-            // Side neon light tube (Left Cyan, Right Magenta)
+            // Side light tube glows
             ctx.lineWidth = 2.5;
             ctx.shadowBlur = 12;
             ctx.strokeStyle = '#00f3ff';
@@ -2732,7 +2883,6 @@ html_code = """
                     let colorMap = { 'star':'#ff4500', 'puffer':'#00f3ff', 'clam':'#9d00ff', 'octopus':'#ff00aa', 'angler':'#39ff14', 'colossal':'#ffd700' };
                     let color = colorMap[baseType] || '#ffffff';
                     
-                    // Draw lighting arcs
                     for (let cell1 of cells) {
                         let sym1 = grid[cell1.r][cell1.c];
                         if (!sym1) continue;
@@ -2743,19 +2893,16 @@ html_code = """
                             let dRow = Math.abs(cell1.r - cell2.r);
                             let dCol = Math.abs(cell1.c - cell2.c);
                             if ((dRow === 1 && dCol === 0) || (dRow === 0 && dCol === 1)) {
-                                // Draw zig-zag lightning arc
                                 let mx1 = sym1.x;
                                 let my1 = sym1.y;
                                 let mx2 = sym2.x;
                                 let my2 = sym2.y;
                                 
-                                // Divide segment into 4 parts
                                 let dx = (mx2 - mx1) / 4;
                                 let dy = (my2 - my1) / 4;
                                 
-                                // Outer electric blur
                                 ctx.strokeStyle = color;
-                                ctx.lineWidth = 5.0 + Math.sin(time*0.3)*2.0;
+                                ctx.lineWidth = 5.0 + Math.sin(time*0.35)*2.0;
                                 ctx.shadowBlur = 20;
                                 ctx.shadowColor = color;
                                 ctx.globalAlpha = 0.55;
@@ -2770,7 +2917,6 @@ html_code = """
                                 ctx.lineTo(mx2, my2);
                                 ctx.stroke();
                                 
-                                // Core white lighting spark
                                 ctx.strokeStyle = '#ffffff';
                                 ctx.lineWidth = 1.5;
                                 ctx.shadowBlur = 0;
@@ -2792,7 +2938,7 @@ html_code = """
             }
 
             // Render symbols
-            let wavePhase = time * 0.04;
+            let wavePhase = time * 0.0012; // Extremely slow wave phase for slow, calm breathing
             
             for (let r = 0; r < gridRows; r++) {
                 for (let c = 0; c < gridCols; c++) {
@@ -2800,23 +2946,46 @@ html_code = """
                     if (sym && !sym.isColossal) {
                         let scale = sym.isExploding ? sym.explodeScale : 1.0;
                         
-                        if (sym.type === 'star') {
-                            drawStarfish(ctx, sym.x, sym.y, 20 * scale * sym.scaleX, wavePhase + r*0.3 + c*0.4);
-                        } else if (sym.type === 'puffer') {
-                            drawPufferfish(ctx, sym.x, sym.y, 20 * scale * sym.scaleX, wavePhase + r*0.3 + c*0.4);
-                        } else if (sym.type === 'clam') {
-                            drawClam(ctx, sym.x, sym.y, 20 * scale * sym.scaleX, wavePhase + r*0.3 + c*0.4);
-                        } else if (sym.type === 'octopus') {
-                            drawOctopus(ctx, sym.x, sym.y, 20 * scale * sym.scaleX, wavePhase + r*0.3 + c*0.4);
-                        } else if (sym.type === 'angler') {
-                            drawAnglerfish(ctx, sym.x, sym.y, 20 * scale * sym.scaleX, wavePhase + r*0.3 + c*0.4);
-                        } else if (sym.type === 'blue_jelly') {
-                            drawUpgradeJelly(ctx, sym.x, sym.y, 20, wavePhase, sym.scaleX * scale, sym.scaleY * scale, 'blue');
-                        } else if (sym.type === 'pink_jelly') {
-                            drawUpgradeJelly(ctx, sym.x, sym.y, 20, wavePhase, sym.scaleX * scale, sym.scaleY * scale, 'pink');
-                        } else if (sym.type === 'gold_jelly') {
-                            drawGoldScatterJelly(ctx, sym.x, sym.y, 20, wavePhase, sym.scaleX * scale, sym.scaleY * scale);
+                        let finalScaleX = sym.scaleX * scale;
+                        let finalScaleY = sym.scaleY * scale;
+                        let finalPhase = wavePhase + r * 0.35 + c * 0.25;
+                        
+                        if (sym.state === 'resting' && !sym.isExploding) {
+                            // Hypnotizing slow breathing (frequency 0.0008, approx. 8 seconds cycle)
+                            let breathe = Math.sin(time * 0.0008 + r * 0.5 + c * 0.35);
+                            finalScaleX *= (1.0 + breathe * 0.08);
+                            finalScaleY *= (1.0 - breathe * 0.08);
+                            
+                            // Subtle rhythmic swaying phase offset
+                            finalPhase += Math.cos(time * 0.0006 + r * 0.4 + c * 0.2) * 0.20;
                         }
+                        
+                        ctx.save();
+                        ctx.translate(sym.x, sym.y);
+                        ctx.scale(finalScaleX, finalScaleY);
+                        if (sym.opacity !== undefined) {
+                            ctx.globalAlpha = sym.opacity;
+                        }
+                        
+                        if (sym.type === 'star') {
+                            drawStarfish(ctx, 0, 0, 20, finalPhase);
+                        } else if (sym.type === 'puffer') {
+                            drawPufferfish(ctx, 0, 0, 20, finalPhase);
+                        } else if (sym.type === 'clam') {
+                            drawClam(ctx, 0, 0, 20, finalPhase);
+                        } else if (sym.type === 'octopus') {
+                            drawOctopus(ctx, 0, 0, 20, finalPhase);
+                        } else if (sym.type === 'angler') {
+                            drawAnglerfish(ctx, 0, 0, 20, finalPhase);
+                        } else if (sym.type === 'blue_jelly') {
+                            drawUpgradeJelly(ctx, 0, 0, 20, finalPhase, 1, 1, 'blue');
+                        } else if (sym.type === 'pink_jelly') {
+                            drawUpgradeJelly(ctx, 0, 0, 20, finalPhase, 1, 1, 'pink');
+                        } else if (sym.type === 'gold_jelly') {
+                            drawGoldScatterJelly(ctx, 0, 0, 20, finalPhase, 1, 1);
+                        }
+                        
+                        ctx.restore();
                     }
                 }
             }
@@ -2852,16 +3021,32 @@ html_code = """
                     ctx.restore();
                 }
 
+                let finalColScaleX = colossalJelly.scaleX * scale;
+                let finalColScaleY = colossalJelly.scaleY * scale;
+                let finalColPhase = wavePhase * 0.8;
+
+                if (colossalJelly.state === 'resting' && !colossalJelly.isExploding) {
+                    let colBreathe = Math.sin(time * 0.001);
+                    finalColScaleX *= (1.0 + colBreathe * 0.05);
+                    finalColScaleY *= (1.0 - colBreathe * 0.05);
+                    finalColPhase += Math.cos(time * 0.0008) * 0.15;
+                }
+
+                ctx.save();
+                if (colossalJelly.opacity !== undefined) {
+                    ctx.globalAlpha = colossalJelly.opacity;
+                }
                 drawColossalJellyfish(
                     ctx,
                     colossalJelly.x,
                     colossalJelly.y,
                     colossalJelly.size * 25, 
-                    wavePhase * 0.8,
-                    colossalJelly.scaleX * scale,
-                    colossalJelly.scaleY * scale,
+                    finalColPhase,
+                    finalColScaleX,
+                    finalColScaleY,
                     colossalJelly.multiplier
                 );
+                ctx.restore();
             }
 
             // Render Particles & Shockwaves inside the screenshake
